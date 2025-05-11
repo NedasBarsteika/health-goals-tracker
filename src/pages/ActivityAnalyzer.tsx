@@ -1,4 +1,14 @@
 import React, { useState } from 'react';
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer
+} from 'recharts';
 
 // Paprasti UI komponentai
 interface CardProps { children: React.ReactNode; className?: string; }
@@ -51,6 +61,7 @@ type Stats = {
 export default function ActivityAnalyzer() {
   const [xmlText, setXmlText] = useState<string>('');
   const [stats, setStats] = useState<Stats | null>(null);
+  const [data, setData] = useState<ActivityData[]>([]);
 
   const parseXml = (text: string) => {
     const wrapped = `<root>${text}</root>`;
@@ -61,7 +72,7 @@ export default function ActivityAnalyzer() {
       alert('Nerasta jokių ActivitySummary elementų.');
       return;
     }
-    const data: ActivityData[] = entries.map(e => ({
+    const parsed: ActivityData[] = entries.map(e => ({
       date: e.getAttribute('dateComponents') || '',
       calories: parseFloat(e.getAttribute('activeEnergyBurned') || '0'),
       caloriesGoal: parseFloat(e.getAttribute('activeEnergyBurnedGoal') || '0'),
@@ -71,19 +82,21 @@ export default function ActivityAnalyzer() {
       standGoal: parseFloat(e.getAttribute('appleStandHoursGoal') || '0'),
     }));
 
-    const totalDays = data.length;
-    const maxCalories = Math.max(...data.map(d => d.calories));
-    const maxExercise = Math.max(...data.map(d => d.exercise));
-    const maxStand = Math.max(...data.map(d => d.stand));
-    const sumCalories = data.reduce((sum, d) => sum + d.calories, 0);
-    const sumExercise = data.reduce((sum, d) => sum + d.exercise, 0);
-    const sumStand = data.reduce((sum, d) => sum + d.stand, 0);
+    setData(parsed);
+
+    const totalDays = parsed.length;
+    const maxCalories = Math.max(...parsed.map(d => d.calories));
+    const maxExercise = Math.max(...parsed.map(d => d.exercise));
+    const maxStand = Math.max(...parsed.map(d => d.stand));
+    const sumCalories = parsed.reduce((sum, d) => sum + d.calories, 0);
+    const sumExercise = parsed.reduce((sum, d) => sum + d.exercise, 0);
+    const sumStand = parsed.reduce((sum, d) => sum + d.stand, 0);
     const avgCalories = sumCalories / totalDays;
     const avgExercise = sumExercise / totalDays;
     const avgStand = sumStand / totalDays;
-    const daysHitCalories = data.filter(d => d.calories >= d.caloriesGoal).length;
-    const daysHitExercise = data.filter(d => d.exercise >= d.exerciseGoal).length;
-    const daysHitStand = data.filter(d => d.stand >= d.standGoal).length;
+    const daysHitCalories = parsed.filter(d => d.calories >= d.caloriesGoal).length;
+    const daysHitExercise = parsed.filter(d => d.exercise >= d.exerciseGoal).length;
+    const daysHitStand = parsed.filter(d => d.stand >= d.standGoal).length;
 
     setStats({ totalDays, maxCalories, maxExercise, maxStand, avgCalories, avgExercise, avgStand, daysHitCalories, daysHitExercise, daysHitStand });
   };
@@ -96,14 +109,13 @@ export default function ActivityAnalyzer() {
     }
   };
 
-  // Palyginimo procentai ir rekomendacijos
   const renderRecommendation = (hit: number, total: number, label: string) => {
     const rate = hit / total;
     if (rate >= 0.8) {
       return <p>🔔 Rekomendacija: pabandykite <strong>padidinti</strong> {label} tikslą (pasiekiate {Math.round(rate * 100)}% dienų).</p>;
     }
     if (rate <= 0.3) {
-      return <p>🔔 Rekomendacija: apsvarstykite <strong>sumenkinti</strong> {label} tikslą (pasiekiate tik {Math.round(rate * 100)}% dienų).</p>;
+      return <p>🔔 Rekomendacija: apsvarstykite <strong>sumažinti</strong> {label} tikslą (pasiekiate tik {Math.round(rate * 100)}% dienų).</p>;
     }
     return null;
   };
@@ -119,48 +131,96 @@ export default function ActivityAnalyzer() {
             value={xmlText}
             onChange={e => setXmlText(e.target.value)}
             placeholder="Čia įklijuokite XML tekstą"
-            className="w-full p-2 border rounded"
+            className="w-full p-2 border rounded mb-2"
           />
           <Button className="mt-2 bg-blue-500 text-white" onClick={() => parseXml(xmlText)}>Analizuoti</Button>
         </CardContent>
       </Card>
 
-      {stats && (
-        <Card>
-          <CardContent>
-            <h2 className="text-xl font-bold mb-2">Rezultatai ({stats.totalDays} dienos)</h2>
-            {/* Didžiausi rodikliai */}
-            <div className="mb-4">
-              <ul className="list-disc list-inside">
-                <li>🔥 Daugiausiai sudegintų kalorijų per dieną: {stats.maxCalories.toFixed(2)}</li>
-                <li>🏃‍♂️ Daugiausiai exercise minučių per dieną: {stats.maxExercise.toFixed(0)}</li>
-                <li>🚶‍♂️ Daugiausiai standing valandų per dieną: {stats.maxStand.toFixed(0)}</li>
-              </ul>
-            </div>
+      {stats && data.length > 0 && (
+        <>
+          <Card>
+            <CardContent>
+              <h2 className="text-xl font-bold mb-2">Rezultatai ({stats.totalDays} dienos)</h2>
 
-            {/* Vidutiniai rodikliai */}
-            <div className="mb-4">
-              <ul className="list-disc list-inside">
-                <li>🔥 Vidutiniškai sudeginama kalorijų per dieną: {stats.avgCalories.toFixed(2)}</li>
-                <li>🏃‍♂️ Vidutiniškai exercise minučių per dieną: {stats.avgExercise.toFixed(2)}</li>
-                <li>🚶‍♂️ Vidutiniškai standing valandų per dieną: {stats.avgStand.toFixed(2)}</li>
-              </ul>
-            </div>
+              <div className="mb-4">
+                <ul className="list-disc list-inside">
+                  <li>🔥 Daugiausiai sudegintų kalorijų per dieną: {stats.maxCalories.toFixed(2)}</li>
+                  <li>🏃‍♂️ Daugiausiai exercise minučių per dieną: {stats.maxExercise.toFixed(0)}</li>
+                  <li>🚶‍♂️ Daugiausiai standing valandų per dieną: {stats.maxStand.toFixed(0)}</li>
+                </ul>
+              </div>
 
-            {/* Tikslų pasiekimas */}
-            <div className="mb-2">
-              <ul className="list-disc list-inside">
-                <li>🔥 Dienų, kai pasiekė kalorijų tikslą: {stats.daysHitCalories}/{stats.totalDays}</li>
-                <li>🏃‍♂️ Dienų, kai pasiekė exercise tikslą: {stats.daysHitExercise}/{stats.totalDays}</li>
-                <li>🚶‍♂️ Dienų, kai pasiekė standing hours tikslą: {stats.daysHitStand}/{stats.totalDays}</li>
-              </ul>
-            </div>
+              <div className="mb-4">
+                <ul className="list-disc list-inside">
+                  <li>🔥 Vidutiniškai sudeginama kalorijų per dieną: {stats.avgCalories.toFixed(2)}</li>
+                  <li>🏃‍♂️ Vidutiniškai exercise minučių per dieną: {stats.avgExercise.toFixed(2)}</li>
+                  <li>🚶‍♂️ Vidutiniškai standing valandų per dieną: {stats.avgStand.toFixed(2)}</li>
+                </ul>
+              </div>
 
-            {renderRecommendation(stats.daysHitCalories, stats.totalDays, 'kalorijų')}
-            {renderRecommendation(stats.daysHitExercise, stats.totalDays, 'exercise')}
-            {renderRecommendation(stats.daysHitStand, stats.totalDays, 'standing hours')}
-          </CardContent>
-        </Card>
+              <div className="mb-2">
+                <ul className="list-disc list-inside">
+                  <li>🔥 Dienų, kai pasiekė kalorijų tikslą: {stats.daysHitCalories}/{stats.totalDays}</li>
+                  <li>🏃‍♂️ Dienų, kai pasiekė exercise tikslą: {stats.daysHitExercise}/{stats.totalDays}</li>
+                  <li>🚶‍♂️ Dienų, kai pasiekė standing hours tikslą: {stats.daysHitStand}/{stats.totalDays}</li>
+                </ul>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Grafikai */}
+          <Card>
+            <CardContent>
+              <h3 className="text-lg font-semibold mb-2">Kalorijų grafikas</h3>
+              <ResponsiveContainer width="100%" height={200}>
+                <LineChart data={data} margin={{ top: 10, right: 20, left: 0, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="date" />
+                  <YAxis />
+                  <Tooltip />
+                  <Legend />
+                  <Line type="monotone" dataKey="calories" name="Sudeginta" stroke="#8884d8" />
+                  <Line type="monotone" dataKey="caloriesGoal" name="Tikslas" stroke="#82ca9d" />
+                </LineChart>
+              </ResponsiveContainer>
+
+              <h3 className="text-lg font-semibold mb-2 mt-4">Exercise minučių grafikas</h3>
+              <ResponsiveContainer width="100%" height={200}>
+                <LineChart data={data} margin={{ top: 10, right: 20, left: 0, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="date" />
+                  <YAxis />
+                  <Tooltip />
+                  <Legend />
+                  <Line type="monotone" dataKey="exercise" name="Exercise" stroke="#8884d8" />
+                  <Line type="monotone" dataKey="exerciseGoal" name="Tikslas" stroke="#82ca9d" />
+                </LineChart>
+              </ResponsiveContainer>
+
+              <h3 className="text-lg font-semibold mb-2 mt-4">Standing valandų grafikas</h3>
+              <ResponsiveContainer width="100%" height={200}>
+                <LineChart data={data} margin={{ top: 10, right: 20, left: 0, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="date" />
+                  <YAxis />
+                  <Tooltip />
+                  <Legend />
+                  <Line type="monotone" dataKey="stand" name="Standing" stroke="#8884d8" />
+                  <Line type="monotone" dataKey="standGoal" name="Tikslas" stroke="#82ca9d" />
+                </LineChart>
+              </ResponsiveContainer>
+
+              {/* Rekomendacijos */}
+              <div className="mt-4">
+                {stats && renderRecommendation(stats.daysHitCalories, stats.totalDays, 'kalorijų')}
+                {stats && renderRecommendation(stats.daysHitExercise, stats.totalDays, 'exercise')}
+                {stats && renderRecommendation(stats.daysHitStand, stats.totalDays, 'standing hours')}
+              </div>
+
+            </CardContent>
+          </Card>
+        </>
       )}
     </div>
   );
