@@ -1,0 +1,11 @@
+@import "tailwindcss";
+
+.App {
+  font-family: "Montserrat", serif;
+  font-optical-sizing: auto;
+  font-weight: 600;
+  font-style: normal;
+  text-align: center;
+  background-color: white;
+  color: black;
+}
