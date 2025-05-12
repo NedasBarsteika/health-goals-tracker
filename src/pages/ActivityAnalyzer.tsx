@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   LineChart,
   Line,
@@ -60,19 +60,25 @@ type Stats = {
 
 export default function ActivityAnalyzer() {
   const [xmlText, setXmlText] = useState<string>('');
-  const [stats, setStats] = useState<Stats | null>(null);
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
   const [data, setData] = useState<ActivityData[]>([]);
+  const [stats, setStats] = useState<Stats | null>(null);
+  const fileRef = useRef<File | null>(null);
 
-  const parseXml = (text: string) => {
-    const wrapped = `<root>${text}</root>`;
+  // Iš tekstinio fragmento ištraukia ActivitySummary eiles
+  const extractActivityXml = (text: string): string => {
+    const regex = /<ActivitySummary\b[^>]*\/?>/g;
+    const matches = text.match(regex);
+    return matches ? matches.join('') : '';
+  };
+
+  // Parsina XML fragmentą į masyvą
+  const parseXmlData = (fragment: string): ActivityData[] => {
+    const wrapped = `<root>${fragment}</root>`;
     const parser = new DOMParser();
     const xml = parser.parseFromString(wrapped, 'application/xml');
-    const entries = Array.from(xml.getElementsByTagName('ActivitySummary'));
-    if (entries.length === 0) {
-      alert('Nerasta jokių ActivitySummary elementų.');
-      return;
-    }
-    const parsed: ActivityData[] = entries.map(e => ({
+    return Array.from(xml.getElementsByTagName('ActivitySummary')).map(e => ({
       date: e.getAttribute('dateComponents') || '',
       calories: parseFloat(e.getAttribute('activeEnergyBurned') || '0'),
       caloriesGoal: parseFloat(e.getAttribute('activeEnergyBurnedGoal') || '0'),
@@ -81,32 +87,69 @@ export default function ActivityAnalyzer() {
       stand: parseFloat(e.getAttribute('appleStandHours') || '0'),
       standGoal: parseFloat(e.getAttribute('appleStandHoursGoal') || '0'),
     }));
+  };
 
-    setData(parsed);
+  // Filtravimas pagal datų intervalą
+  const filterByDate = (entries: ActivityData[]): ActivityData[] => {
+    if (!startDate || !endDate) return entries;
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    return entries.filter(d => {
+      const cur = new Date(d.date);
+      return cur >= start && cur <= end;
+    });
+  };
 
-    const totalDays = parsed.length;
-    const maxCalories = Math.max(...parsed.map(d => d.calories));
-    const maxExercise = Math.max(...parsed.map(d => d.exercise));
-    const maxStand = Math.max(...parsed.map(d => d.stand));
-    const sumCalories = parsed.reduce((sum, d) => sum + d.calories, 0);
-    const sumExercise = parsed.reduce((sum, d) => sum + d.exercise, 0);
-    const sumStand = parsed.reduce((sum, d) => sum + d.stand, 0);
+  // Apskaičiavimai
+  const computeStats = (entries: ActivityData[]): Stats => {
+    const totalDays = entries.length;
+    const maxCalories = Math.max(...entries.map(d => d.calories));
+    const maxExercise = Math.max(...entries.map(d => d.exercise));
+    const maxStand = Math.max(...entries.map(d => d.stand));
+    const sumCalories = entries.reduce((s, d) => s + d.calories, 0);
+    const sumExercise = entries.reduce((s, d) => s + d.exercise, 0);
+    const sumStand = entries.reduce((s, d) => s + d.stand, 0);
     const avgCalories = sumCalories / totalDays;
     const avgExercise = sumExercise / totalDays;
     const avgStand = sumStand / totalDays;
-    const daysHitCalories = parsed.filter(d => d.calories >= d.caloriesGoal).length;
-    const daysHitExercise = parsed.filter(d => d.exercise >= d.exerciseGoal).length;
-    const daysHitStand = parsed.filter(d => d.stand >= d.standGoal).length;
-
-    setStats({ totalDays, maxCalories, maxExercise, maxStand, avgCalories, avgExercise, avgStand, daysHitCalories, daysHitExercise, daysHitStand });
+    const daysHitCalories = entries.filter(d => d.calories >= d.caloriesGoal).length;
+    const daysHitExercise = entries.filter(d => d.exercise >= d.exerciseGoal).length;
+    const daysHitStand = entries.filter(d => d.stand >= d.standGoal).length;
+    return { totalDays, maxCalories, maxExercise, maxStand, avgCalories, avgExercise, avgStand, daysHitCalories, daysHitExercise, daysHitStand };
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const text = await file.text();
-      setXmlText(text);
+  // Pagrindinė analizės funkcija, nustato data = filtered
+  const handleAnalyze = async () => {
+    if (!fileRef.current) { alert('Pirmiausia įkelkite XML failą.'); return; }
+    const file = fileRef.current;
+    try {
+      let xmlContent: string;
+      if (file.size > 10_000_000) {
+        const tailSize = 5_000_000;
+        const start = file.size > tailSize ? file.size - tailSize : 0;
+        xmlContent = await file.slice(start).text();
+      } else {
+        xmlContent = await file.text();
+      }
+      const fragment = extractActivityXml(xmlContent);
+      const parsed = parseXmlData(fragment);
+      const filtered = filterByDate(parsed);
+      setData(filtered);
+      setStats(computeStats(filtered));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } catch (err: any) {
+      alert('Klaida apdorojant failą: ' + err.message);
     }
+  };
+
+  // Failo pasirinkimas
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0] || null;
+    fileRef.current = f;
+    if (f) {
+      f.text().then(t => setXmlText(t));
+    }
+    setStats(null);
   };
 
   const renderRecommendation = (hit: number, total: number, label: string) => {
@@ -124,16 +167,20 @@ export default function ActivityAnalyzer() {
     <div className="max-w-xl mx-auto p-4">
       <Card>
         <CardContent>
-          <h2 className="text-xl font-bold mb-2">Įkelkite savo XML duomenis</h2>
-          <input type="file" accept=".xml" onChange={handleFileUpload} className="mb-2" />
+          <h2 className="text-xl font-bold mb-2">Įkelkite visą sveikatos XML</h2>
+          <input type="file" accept=".xml" onChange={handleFileChange} className="mb-2" />
           <textarea
-            rows={10}
+            rows={4}
             value={xmlText}
             onChange={e => setXmlText(e.target.value)}
-            placeholder="Čia įklijuokite XML tekstą"
+            placeholder="Įklijuokite XML..."
             className="w-full p-2 border rounded mb-2"
           />
-          <Button className="mt-2 bg-blue-500 text-white" onClick={() => parseXml(xmlText)}>Analizuoti</Button>
+          <div className="flex space-x-2 mb-2">
+            <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="border p-2 rounded flex-1" />
+            <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="border p-2 rounded flex-1" />
+          </div>
+          <Button className="bg-blue-500 text-white" onClick={handleAnalyze}>Analizuoti</Button>
         </CardContent>
       </Card>
 
